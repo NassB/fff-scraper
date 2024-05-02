@@ -1,4 +1,5 @@
 import json
+import requests
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
@@ -8,158 +9,70 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
 
-with open("club_logos.json", "w") as file:
-    # Use the `truncate()` method to clear the file's content
-    file.truncate()
+def fetch_zip_codes():
+    response = requests.get('https://geo.api.gouv.fr/departements/38/communes/')
+    if response.status_code == 200:
+        return [zip_code for item in response.json() if 'codesPostaux' in item for zip_code in item['codesPostaux']]
+    return []
 
-# Set up Selenium WebDriver
-service = Service(ChromeDriverManager().install())
-driver = webdriver.Chrome(service=service)
 
-# Define the URL of the website to scrape and open it
-url = 'https://isere.fff.fr/les-clubs/'
-driver.get(url)
+def setup_webdriver():
+    service = Service(ChromeDriverManager().install())
+    return webdriver.Chrome(service=service)
 
-# Define the list of clubs
-clubs = [
-    "BALMES",
-    "La BATIE MONTGASCON",
-    "Le BOUCHAGE/PASSINS",
-    "BOURBRE",
-    "BOURGOIN ASP",
-    "BOURGOIN FC",
-    "BOUVESSE",
-    "CASSOLARD PASSAGEOIS",
-    "CESSIEU",
-    "CHARVIEU CHAV",
-    "CORBELIN",
-    "CREMIEU",
-    "CREYS MORESTEL",
-    "DOLOMIEU",
-    "DOMARIN",
-    "l’ISLE D’ABEAU",
-    "LA TOUR ST CLAIR",
-    "LAUZES",
-    "LES AVENIERES",
-    "MEYRIE",
-    "NIVOLAS",
-    "ROCHETOIRIN",
-    "RUY MONTCEAU",
-    "SEREZIN DE LA TOUR",
-    "St ANDRE LE GAZ",
-    "St QUENTIN FALLAVIER",
-    "TIGNIEU JAM.",
-    "TURCS DE LA VERPILLERE",
-    "VALLEE HIEN 38",
-    "VALLEE DU GUIERS",
-    "VEZERONCE/HUERT",
-    "O.VILLEFONTAINE",
-    "ABBAYE",
-    "ASIEG",
-    "BAJATIERE",
-    "2 ROCHERS",
-    "FC 2A",
-    "GF 38",
-    "GRENOBLE DAUPHINE",
-    "VILLENEUVE",
-    "VOREPPE",
-    "ECHIROLLES FC",
-    "EYBENS",
-    "FONTAINE AS",
-    "MISTRAL FC",
-    "NOYAREY",
-    "POISAT",
-    "QUATRE MONTAGNES",
-    "St MARTIN D’HERES",
-    "SASSENAGE",
-    "SEYSSINET",
-    "SEYSSINS",
-    "TUNISIENS SMH",
-    "TURCS DE GRENOBLE",
-    "U.O. PORTUGAL",
-    "USVO",
-    # SECTEUR PONTCHARRA
-    "1.2.3 BOUGE",
-    "CROLLES",
-    "DOMENE",
-    "FROGES",
-    "GIERES",
-    "GONCELIN",
-    "GRESIVAUDAN",
-    "MANIVAL",
-    "PAYS ALLEVARD",
-    "PONTCHARRA",
-    "RACHAIS",
-    "ST HILAIRE TOUVET",
-    "ST MARTIN URIAGE",
-    "TOUVET TERRASSE",
-    # Add the remaining clubs here
-]
 
-# Initialize JSON object to store club logos
-club_logos = {}
+def main():
+    zip_codes = fetch_zip_codes()
+    if not zip_codes:
+        return
 
-# List to store clubs where no result was found
-failed_clubs = []
+    driver = setup_webdriver()
+    url = 'https://isere.fff.fr/les-clubs/'
+    driver.get(url)
 
-try:
-    # Handle the consent popup
-    WebDriverWait(driver, 10).until(
-        EC.element_to_be_clickable((By.ID, "didomi-notice-agree-button"))
-    ).click()
+    club_logos = {}
+    failed_zip_codes = []
 
-    # Find the input field by its placeholder attribute once
-    input_field = WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located(
-            (By.CSS_SELECTOR, 'input[placeholder="Recherchez un club par nom, ville ou CP"]'))
-    )
-
-    # Iterate through each club
-    for club in clubs:
-        input_field.clear()
-        input_field.send_keys(club)
-
-        # Simulate pressing Enter to load the result
-        input_field.send_keys(Keys.RETURN)
-
-        # Wait for results to be processed
+    try:
         WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, '.search-results'))
+            EC.element_to_be_clickable((By.ID, "didomi-notice-agree-button"))
+        ).click()
+
+        input_field = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, 'input[placeholder="Recherchez un club par nom, ville ou CP"]'))
         )
 
-        # Handle no results scenario
-        no_result_message_elements = driver.find_elements(By.CSS_SELECTOR, '.no_result_club')
-        if no_result_message_elements and "Aucun résultat pour votre recherche" in no_result_message_elements[0].text:
-            print(f"No result found for club: {club}")
-            failed_clubs.append(club)
-            club_logos[club] = ''
-            continue
-        else:
-            # Retrieve the logos directly from search results without clicking
-            logo_elements = driver.find_elements(By.CSS_SELECTOR, '.logo-club img')
+        for zip_code in zip_codes:
+            print(f"Processing zip code: {zip_code}")
+            input_field.clear()
+            input_field.send_keys(zip_code)
+            input_field.send_keys(Keys.RETURN)
 
-            if logo_elements:
-                logo_url = logo_elements[0].get_attribute('src')
-                logo_name = driver.find_element(By.CLASS_NAME, 'name-club').text
-                if logo_name:
-                    print(logo_name)
-                    club_logos[logo_name] = logo_url
-                else:
-                    club_logos[club] = logo_url
-            else:
-                club_logos[club] = ''
+            try:
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.CLASS_NAME, 'search-results'))
+                )
+                search_club_lists = driver.find_elements(By.CSS_SELECTOR, '.search-club-list')
+                for club in search_club_lists:
+                    logo_url = club.find_element(By.CSS_SELECTOR, 'img').get_attribute('src')
+                    club_name = club.find_element(By.CLASS_NAME, 'name-club').text
+                    if club_name and logo_url:
+                        club_logos[club_name] = logo_url
+            except Exception as e:
+                print(f"No result or error for zip code: {zip_code}")
+                failed_zip_codes.append(zip_code)
 
-        driver.implicitly_wait(5)
+    finally:
+        driver.quit()
 
-finally:
-    # Close the browser
-    driver.quit()
+        with open('club_logos.json', 'w') as outfile:
+            json.dump(club_logos, outfile, indent=4)
 
-    # Save the collected logos to a file
-    with open('club_logos.json', 'w') as outfile:
-        json.dump(club_logos, outfile, indent=4)
+        if failed_zip_codes:
+            print("Failed to find results for the following zip codes:")
+            print(failed_zip_codes)
 
-    # Print any clubs that failed to find results
-    if failed_clubs:
-        print("Failed to find results for the following clubs:")
-        print(failed_clubs)
+
+if __name__ == "__main__":
+    main()
