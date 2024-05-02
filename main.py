@@ -10,6 +10,10 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 
 def fetch_zip_codes():
+    """
+    Fetches zip codes from a government API for a specific department.
+    Returns a list of zip codes if successful, an empty list otherwise.
+    """
     response = requests.get('https://geo.api.gouv.fr/departements/38/communes/')
     if response.status_code == 200:
         return [zip_code for item in response.json() if 'codesPostaux' in item for zip_code in item['codesPostaux']]
@@ -17,13 +21,22 @@ def fetch_zip_codes():
 
 
 def setup_webdriver():
+    """
+    Sets up and returns a Selenium WebDriver.
+    Uses ChromeDriverManager to handle the installation of the ChromeDriver if necessary.
+    """
     service = Service(ChromeDriverManager().install())
     return webdriver.Chrome(service=service)
 
 
 def main():
+    """
+    Main function to orchestrate the fetching of zip codes, setting up WebDriver, and scraping the club logos.
+    Logs club logos to a JSON file and outputs any zip codes that failed to yield results.
+    """
     zip_codes = fetch_zip_codes()
     if not zip_codes:
+        print("No zip codes found, exiting.")
         return
 
     driver = setup_webdriver()
@@ -34,10 +47,12 @@ def main():
     failed_zip_codes = []
 
     try:
+        # Click to agree on the consent popup
         WebDriverWait(driver, 10).until(
             EC.element_to_be_clickable((By.ID, "didomi-notice-agree-button"))
         ).click()
 
+        # Wait for the search input field and store it for reuse
         input_field = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located(
                 (By.CSS_SELECTOR, 'input[placeholder="Recherchez un club par nom, ville ou CP"]'))
@@ -49,6 +64,7 @@ def main():
             input_field.send_keys(zip_code)
             input_field.send_keys(Keys.RETURN)
 
+            # Handle search results or the absence thereof
             try:
                 WebDriverWait(driver, 10).until(
                     EC.presence_of_element_located((By.CLASS_NAME, 'search-results'))
@@ -64,8 +80,10 @@ def main():
                 failed_zip_codes.append(zip_code)
 
     finally:
+        # Clean up by closing the browser once done
         driver.quit()
 
+        # Save the collected club logos to a JSON file
         with open('club_logos.json', 'w') as outfile:
             json.dump(club_logos, outfile, indent=4)
 
